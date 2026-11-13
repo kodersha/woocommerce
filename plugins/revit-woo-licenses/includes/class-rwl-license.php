@@ -9,44 +9,22 @@ class RWL_License {
 	 */
 	public static function term_for_item( WC_Order_Item_Product $item ) {
 		$product_id = $item->get_product_id();
-		$mode = get_post_meta( $product_id, RWL_Product::META_TERM_MODE, true );
-		$legacy_mode = '' === $mode || 'legacy' === $mode;
-		if ( ! in_array( $mode, array( 'attribute', 'default', 'perpetual', 'legacy' ), true ) ) {
-			$mode = 'attribute';
+		$term_key = get_post_meta( $product_id, RWL_Product::META_TERM, true );
+		$terms = array(
+			'1_week'    => array( 'perpetual' => false, 'unit' => 'weeks',  'value' => 1 ),
+			'2_weeks'   => array( 'perpetual' => false, 'unit' => 'weeks',  'value' => 2 ),
+			'1_month'   => array( 'perpetual' => false, 'unit' => 'months', 'value' => 1 ),
+			'3_months'  => array( 'perpetual' => false, 'unit' => 'months', 'value' => 3 ),
+			'6_months'  => array( 'perpetual' => false, 'unit' => 'months', 'value' => 6 ),
+			'12_months' => array( 'perpetual' => false, 'unit' => 'months', 'value' => 12 ),
+			'perpetual' => array( 'perpetual' => true,  'unit' => 'none',   'value' => 0 ),
+		);
+
+		// Для старых товаров без нового поля безопасное значение — бессрочно.
+		if ( '' === $term_key ) {
+			$term_key = 'perpetual';
 		}
-		if ( 'perpetual' === $mode ) {
-			return array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
-		}
-		if ( 'attribute' === $mode ) {
-			$slug = (string) RWL_Settings::get( 'attribute_slug' );
-			if ( '' === $slug ) {
-				$legacy_weeks = $legacy_mode ? absint( get_post_meta( $product_id, RWL_Product::META_WEEKS, true ) ) : 0;
-				return $legacy_weeks > 0
-					? array( 'perpetual' => false, 'unit' => 'weeks', 'value' => $legacy_weeks )
-					: array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
-			}
-			$raw = self::attribute_value( $item, $slug );
-			if ( '' === $raw ) {
-				// Старые товары сохраняют прежний fallback на META_WEEKS.
-				$legacy_weeks = $legacy_mode ? absint( get_post_meta( $product_id, RWL_Product::META_WEEKS, true ) ) : 0;
-				if ( $legacy_weeks > 0 ) {
-					return array( 'perpetual' => false, 'unit' => 'weeks', 'value' => $legacy_weeks );
-				}
-				$product = wc_get_product( $product_id );
-				// У переменного товара отсутствие значения вариации — ошибка,
-				// а не основание выдать бессрочную лицензию.
-				if ( $product && $product->is_type( 'variable' ) ) {
-					return null;
-				}
-				return array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
-			}
-			return self::parse_term( $raw );
-		}
-		$weeks = max( 0, (int) get_post_meta( $product_id, RWL_Product::META_WEEKS, true ) );
-		// Нулевой срок по умолчанию означает бессрочную лицензию, а не ошибку и не неделю.
-		return $weeks > 0
-			? array( 'perpetual' => false, 'unit' => 'weeks', 'value' => $weeks )
-			: array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
+		return isset( $terms[ $term_key ] ) ? $terms[ $term_key ] : null;
 	}
 
 	/** Рассчитывает окончание срока; месяцы добавляются календарно с ограничением последним днём месяца. */
