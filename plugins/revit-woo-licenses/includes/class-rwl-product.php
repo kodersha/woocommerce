@@ -6,8 +6,20 @@ class RWL_Product {
 	const META_PLUGIN  = '_rwl_is_plugin';       // yes|no
 	const META_REVIT   = '_rwl_revit_version';
 	const META_VERSION = '_rwl_product_version';
-	const META_WEEKS   = '_rwl_license_weeks';   // legacy срок по умолчанию (недели)
-	const META_TERM_MODE = '_rwl_license_term_mode'; // attribute|default|perpetual
+	const META_TERM = '_rwl_license_term'; // единый срок для товара и всех его вариаций
+
+	/** Фиксированный список допустимых сроков лицензии. */
+	public static function license_terms() {
+		return array(
+			'1_week'   => '1 неделя',
+			'2_weeks'  => '2 недели',
+			'1_month'  => '1 месяц',
+			'3_months' => '3 месяца',
+			'6_months' => 'Полгода',
+			'12_months'=> '1 год',
+			'perpetual'=> 'Бессрочно',
+		);
+	}
 
 	public static function init() {
 		add_action( 'woocommerce_product_options_general_product_data', array( __CLASS__, 'render_fields' ) );
@@ -55,30 +67,17 @@ class RWL_Product {
 		) );
 		global $post;
 		$post_id = $post instanceof WP_Post ? $post->ID : 0;
-		$term_mode = $post_id ? get_post_meta( $post_id, self::META_TERM_MODE, true ) : '';
-		if ( '' === $term_mode ) {
-			$term_mode = $post_id && absint( get_post_meta( $post_id, self::META_WEEKS, true ) ) > 0 ? 'legacy' : 'attribute';
+		$term = $post_id ? get_post_meta( $post_id, self::META_TERM, true ) : '';
+		if ( ! array_key_exists( $term, self::license_terms() ) ) {
+			$term = 'perpetual';
 		}
 		woocommerce_wp_select( array(
-			'id'          => self::META_TERM_MODE,
-			'value'       => $term_mode,
-			'label'       => 'Правило срока лицензии',
-			'options'     => array(
-				'attribute' => 'По выбранному атрибуту; если атрибута подписки нет — бессрочно',
-				'default'   => 'Использовать срок по умолчанию ниже',
-				'perpetual' => 'Всегда бессрочная лицензия',
-				'legacy'    => 'Старое правило (атрибут, затем срок по умолчанию)',
-			),
+			'id'          => self::META_TERM,
+			'value'       => $term,
+			'label'       => 'Срок лицензии',
+			'options'     => self::license_terms(),
 			'desc_tip'    => true,
-			'description' => 'Для вариативного товара срок берётся только из выбранной вариации. Неизвестное значение атрибута считается ошибкой настройки. Старое правило сохраняет прежние сроки существующих товаров до ручного выбора нового режима.',
-		) );
-		woocommerce_wp_text_input( array(
-			'id'                => self::META_WEEKS,
-			'label'             => 'Срок по умолчанию (нед.)',
-			'type'              => 'number',
-			'custom_attributes' => array( 'min' => '0', 'step' => '1' ),
-			'desc_tip'          => true,
-			'description'       => 'Используется только в режиме «Срок по умолчанию». 0 означает бессрочную лицензию. Отрицательные значения не допускаются. Атрибут срока имеет приоритет только в режиме «По выбранному атрибуту».',
+			'description' => 'Единый срок лицензии для товара и всех его вариаций. Месяцы рассчитываются календарно. Для бессрочной лицензии дата окончания не устанавливается.',
 		) );
 		echo '</div>';
 	}
@@ -95,19 +94,15 @@ class RWL_Product {
 			$val = isset( $_POST[ $key ] ) ? self::clean_version( wp_unslash( $_POST[ $key ] ) ) : ''; // phpcs:ignore
 			update_post_meta( $post_id, $key, $val );
 		}
-		$mode = isset( $_POST[ self::META_TERM_MODE ] ) ? sanitize_key( wp_unslash( $_POST[ self::META_TERM_MODE ] ) ) : 'attribute'; // phpcs:ignore
-		if ( ! in_array( $mode, array( 'attribute', 'default', 'perpetual', 'legacy' ), true ) ) {
-			$mode = 'attribute';
+		$term = isset( $_POST[ self::META_TERM ] ) ? sanitize_key( wp_unslash( $_POST[ self::META_TERM ] ) ) : 'perpetual'; // phpcs:ignore WordPress.Security.NonceVerification
+		$terms = self::license_terms();
+		if ( ! array_key_exists( $term, $terms ) ) {
+			$term = 'perpetual';
 		}
-		update_post_meta( $post_id, self::META_TERM_MODE, $mode );
-		$raw_weeks = isset( $_POST[ self::META_WEEKS ] ) ? trim( (string) wp_unslash( $_POST[ self::META_WEEKS ] ) ) : '0'; // phpcs:ignore
-		// Сохраняем только целое неотрицательное число: отрицательные значения не превращаем в положительные через absint().
-		$weeks = ctype_digit( $raw_weeks ) ? (int) $raw_weeks : 0;
-		if ( $weeks >= 0 ) {
-			update_post_meta( $post_id, self::META_WEEKS, $weeks );
-		} else {
-			delete_post_meta( $post_id, self::META_WEEKS );
-		}
+		update_post_meta( $post_id, self::META_TERM, $term );
+		// Старые поля больше не участвуют в определении срока.
+		delete_post_meta( $post_id, '_rwl_license_term_mode' );
+		delete_post_meta( $post_id, '_rwl_license_weeks' );
 
 		if ( $old !== self::snapshot( $post_id ) ) {
 			RWL_Sender::enqueue_version_update( $post_id );
