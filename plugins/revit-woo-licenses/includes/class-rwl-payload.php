@@ -31,7 +31,7 @@ class RWL_Payload {
 		if ( 'yes' === $snap['plugin'] ) {
 			$term = RWL_License::term_for_item( $item );
 			if ( ! $term ) {
-				return new WP_Error( 'rwl_no_term', 'Не удалось определить срок лицензии для «' . $product->get_name() . '». Проверьте атрибут выбранной вариации и справочник сроков.' );
+				return new WP_Error( 'rwl_no_term', 'Не удалось определить срок лицензии для «' . $product->get_name() . '». Проверьте поле «Срок лицензии» в карточке товара.' );
 			}
 			if ( $term['perpetual'] && 'yes' !== RWL_Settings::get( 'api_supports_perpetual' ) ) {
 				return new WP_Error( 'rwl_perpetual_unsupported', 'Лицензия бессрочная, но поддержка license_perpetual ещё не включена для внешнего API. Обновите сервер и включите настройку в WooCommerce → Revit Licenses.' );
