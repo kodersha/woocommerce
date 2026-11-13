@@ -112,13 +112,7 @@ class RWL_Settings {
 					<tr><th>Макс. попыток отправки</th><td><input type="number" min="1" max="20" name="<?php echo $n; ?>[max_attempts]" value="<?php echo (int) $s['max_attempts']; ?>">
 						<p class="description">Повторы с нарастающей паузой (1 мин, 2, 4 … до 6 ч).</p></td></tr>
 				</table>
-				<h2>Срок подписки</h2>
-				<table class="form-table" role="presentation">
-					<tr><th>Слаг атрибута срока</th><td><input type="text" class="regular-text" name="<?php echo $n; ?>[attribute_slug]" value="<?php echo esc_attr( $s['attribute_slug'] ); ?>" placeholder="srok-podpiski">
-						<p class="description">Атрибут товара/вариации (с префиксом pa_ или без). Значение выбранной вариации определяет срок. Формат значения задаётся в справочнике ниже.</p></td></tr>
-					<tr><th>Список допустимых значений</th><td><textarea name="<?php echo $n; ?>[duration_map]" rows="5" cols="50" placeholder="31 день=days:31&#10;полгода=months:6&#10;1 год=months:12"><?php echo esc_textarea( $s['duration_map'] ); ?></textarea>
-						<p class="description">Строки «значение=единица:число»: например «31 день=days:31», «Полгода=months:6», «1 год=months:12». Допустимы days, weeks, months. Старый формат «значение=число» продолжает считаться неделями. Неизвестное значение не подменяется сроком по умолчанию.</p></td></tr>
-				</table>
+				<p class="description">Срок лицензии задаётся отдельно в карточке каждого товара. Один срок применяется ко всем вариациям товара.</p>
 				<h2>Бессрочные лицензии</h2>
 				<table class="form-table" role="presentation"><tr><th>Поддержка внешним API</th><td><label><input type="checkbox" name="<?php echo $n; ?>[api_supports_perpetual]" value="1" <?php checked( $s['api_supports_perpetual'], 'yes' ); ?>> Внешний сервер принимает <code>license_perpetual: true</code> и <code>license_end: null</code></label><p class="description">Включайте только после добавления поддержки на сервере лицензий. Пока настройка выключена, отправка бессрочной лицензии будет остановлена с понятной ошибкой.</p></td></tr></table>
 				<?php submit_button(); ?>
