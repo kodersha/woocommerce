@@ -1,0 +1,141 @@
+<?php
+defined( 'ABSPATH' ) || exit;
+
+/** Поля карточки товара и вывод версий на витрине. */
+class RWL_Product {
+	const META_PLUGIN  = '_rwl_is_plugin';       // yes|no
+	const META_REVIT   = '_rwl_revit_version';
+	const META_VERSION = '_rwl_product_version';
+	const META_WEEKS   = '_rwl_license_weeks';   // legacy срок по умолчанию (недели)
+	const META_TERM_MODE = '_rwl_license_term_mode'; // attribute|default|perpetual
+
+	public static function init() {
+		add_action( 'woocommerce_product_options_general_product_data', array( __CLASS__, 'render_fields' ) );
+		add_action( 'woocommerce_process_product_meta', array( __CLASS__, 'save' ) );
+		add_action( 'woocommerce_single_product_summary', array( __CLASS__, 'render_public' ), 25 );
+	}
+
+	public static function is_plugin( $product_id ) {
+		return 'yes' === get_post_meta( $product_id, self::META_PLUGIN, true );
+	}
+
+	public static function snapshot( $product_id ) {
+		return array(
+			'plugin'  => self::is_plugin( $product_id ) ? 'yes' : 'no',
+			'revit'   => (string) get_post_meta( $product_id, self::META_REVIT, true ),
+			'version' => (string) get_post_meta( $product_id, self::META_VERSION, true ),
+		);
+	}
+
+	public static function clean_version( $v ) {
+		$v = trim( sanitize_text_field( (string) $v ) );
+		return function_exists( 'mb_substr' ) ? mb_substr( $v, 0, 50 ) : substr( $v, 0, 50 );
+	}
+
+	public static function render_fields() {
+		echo '<div class="options_group">';
+		woocommerce_wp_checkbox( array(
+			'id'          => self::META_PLUGIN,
+			'label'       => 'Плагин',
+			'description' => 'Товар — плагин с подпиской (лицензией). Без галочки — файловый товар (семейство), без лицензии.',
+		) );
+		woocommerce_wp_text_input( array(
+			'id'          => self::META_REVIT,
+			'label'       => 'Версия Revit',
+			'placeholder' => '2024–2026',
+			'desc_tip'    => true,
+			'description' => 'Версия(и) Autodesk Revit, с которыми совместим товар.',
+		) );
+		woocommerce_wp_text_input( array(
+			'id'          => self::META_VERSION,
+			'label'       => 'Версия товара',
+			'placeholder' => '2.1.0',
+			'desc_tip'    => true,
+			'description' => 'Версия плагина или семейства.',
+		) );
+		global $post;
+		$post_id = $post instanceof WP_Post ? $post->ID : 0;
+		$term_mode = $post_id ? get_post_meta( $post_id, self::META_TERM_MODE, true ) : '';
+		if ( '' === $term_mode ) {
+			$term_mode = $post_id && absint( get_post_meta( $post_id, self::META_WEEKS, true ) ) > 0 ? 'legacy' : 'attribute';
+		}
+		woocommerce_wp_select( array(
+			'id'          => self::META_TERM_MODE,
+			'value'       => $term_mode,
+			'label'       => 'Правило срока лицензии',
+			'options'     => array(
+				'attribute' => 'По выбранному атрибуту; если атрибута подписки нет — бессрочно',
+				'default'   => 'Использовать срок по умолчанию ниже',
+				'perpetual' => 'Всегда бессрочная лицензия',
+				'legacy'    => 'Старое правило (атрибут, затем срок по умолчанию)',
+			),
+			'desc_tip'    => true,
+			'description' => 'Для вариативного товара срок берётся только из выбранной вариации. Неизвестное значение атрибута считается ошибкой настройки. Старое правило сохраняет прежние сроки существующих товаров до ручного выбора нового режима.',
+		) );
+		woocommerce_wp_text_input( array(
+			'id'                => self::META_WEEKS,
+			'label'             => 'Срок по умолчанию (нед.)',
+			'type'              => 'number',
+			'custom_attributes' => array( 'min' => '0', 'step' => '1' ),
+			'desc_tip'          => true,
+			'description'       => 'Используется только в режиме «Срок по умолчанию». 0 означает бессрочную лицензию. Отрицательные значения не допускаются. Атрибут срока имеет приоритет только в режиме «По выбранному атрибуту».',
+		) );
+		echo '</div>';
+	}
+
+	public static function save( $post_id ) {
+		// Nonce и права проверяет WooCommerce до вызова этого хука; дополнительно проверяем право на запись.
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+		$old = self::snapshot( $post_id );
+
+		update_post_meta( $post_id, self::META_PLUGIN, isset( $_POST[ self::META_PLUGIN ] ) ? 'yes' : 'no' ); // phpcs:ignore WordPress.Security.NonceVerification
+		foreach ( array( self::META_REVIT, self::META_VERSION ) as $key ) {
+			$val = isset( $_POST[ $key ] ) ? self::clean_version( wp_unslash( $_POST[ $key ] ) ) : ''; // phpcs:ignore
+			update_post_meta( $post_id, $key, $val );
+		}
+		$mode = isset( $_POST[ self::META_TERM_MODE ] ) ? sanitize_key( wp_unslash( $_POST[ self::META_TERM_MODE ] ) ) : 'attribute'; // phpcs:ignore
+		if ( ! in_array( $mode, array( 'attribute', 'default', 'perpetual', 'legacy' ), true ) ) {
+			$mode = 'attribute';
+		}
+		update_post_meta( $post_id, self::META_TERM_MODE, $mode );
+		$raw_weeks = isset( $_POST[ self::META_WEEKS ] ) ? trim( (string) wp_unslash( $_POST[ self::META_WEEKS ] ) ) : '0'; // phpcs:ignore
+		// Сохраняем только целое неотрицательное число: отрицательные значения не превращаем в положительные через absint().
+		$weeks = ctype_digit( $raw_weeks ) ? (int) $raw_weeks : 0;
+		if ( $weeks >= 0 ) {
+			update_post_meta( $post_id, self::META_WEEKS, $weeks );
+		} else {
+			delete_post_meta( $post_id, self::META_WEEKS );
+		}
+
+		if ( $old !== self::snapshot( $post_id ) ) {
+			RWL_Sender::enqueue_version_update( $post_id );
+		}
+	}
+
+	/** Версия программы/актуальная версия и под ней версия Revit — в блоке summary. */
+	public static function render_public() {
+		global $product;
+		if ( ! $product instanceof WC_Product ) {
+			return;
+		}
+		$snap = self::snapshot( $product->get_id() );
+		$rows = array();
+		if ( $snap['version'] !== '' ) {
+			$label = 'yes' === $snap['plugin'] ? 'Версия программы' : 'Актуальная версия';
+			$rows[ $label ] = $snap['version'];
+		}
+		if ( $snap['revit'] !== '' ) {
+			$rows['Версия Revit'] = $snap['revit'];
+		}
+		if ( ! $rows ) {
+			return;
+		}
+		echo '<ul class="rwl-product-info" style="list-style:none;margin:0 0 1em;padding:0">';
+		foreach ( $rows as $label => $value ) {
+			echo '<li><strong>' . esc_html( $label ) . ':</strong> ' . esc_html( $value ) . '</li>';
+		}
+		echo '</ul>';
+	}
+}
