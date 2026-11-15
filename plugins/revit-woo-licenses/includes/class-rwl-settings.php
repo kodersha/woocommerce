@@ -108,11 +108,18 @@ class RWL_Settings {
 					<tr><th>HMAC-секрет (необязательно)</th><td><input type="password" class="regular-text" autocomplete="new-password" name="<?php echo $n; ?>[hmac_secret]" placeholder="<?php echo $s['hmac_secret'] ? '•••••• (сохранён)' : ''; ?>">
 						<p class="description">Если задан, добавляются заголовки X-RWL-Timestamp и X-RWL-Signature = sha256 HMAC от «timestamp.тело».</p>
 						<label><input type="checkbox" name="<?php echo $n; ?>[clear_secrets]" value="1"> Удалить сохранённые токен и секрет</label></td></tr>
-					<tr><th>Таймаут, сек</th><td><input type="number" min="5" max="60" name="<?php echo $n; ?>[timeout]" value="<?php echo (int) $s['timeout']; ?>"></td></tr>
+						<tr><th>Таймаут, сек</th><td><input type="number" min="5" max="60" name="<?php echo $n; ?>[timeout]" value="<?php echo (int) $s['timeout']; ?>"></td></tr>
 					<tr><th>Макс. попыток отправки</th><td><input type="number" min="1" max="20" name="<?php echo $n; ?>[max_attempts]" value="<?php echo (int) $s['max_attempts']; ?>">
 						<p class="description">Повторы с нарастающей паузой (1 мин, 2, 4 … до 6 ч).</p></td></tr>
 				</table>
-				<p class="description">Срок лицензии задаётся отдельно в карточке каждого товара. Один срок применяется ко всем вариациям товара.</p>
+				<h2>Срок лицензии по атрибуту товара (необязательно)</h2>
+				<table class="form-table" role="presentation">
+					<tr><th>Атрибут срока</th><td><input type="text" class="regular-text" name="<?php echo $n; ?>[attribute_slug]" value="<?php echo esc_attr( $s['attribute_slug'] ); ?>" placeholder="srok или pa_srok">
+						<p class="description">Укажите slug глобального атрибута WooCommerce (без префикса pa_ или с ним). Выбранное значение вариации будет иметь приоритет над сроком, заданным в карточке товара.</p></td></tr>
+					<tr><th>Соответствие значений срокам</th><td><textarea class="large-text code" rows="6" name="<?php echo $n; ?>[duration_map]"><?php echo esc_textarea( $s['duration_map'] ); ?></textarea>
+						<p class="description">По одной записи на строку: <code>Название значения=единица:число</code>. Например:<br><code>31 день=days:31</code><br><code>Полгода=months:6</code><br><code>1 год=52</code> (старый формат — недели).</p></td></tr>
+				</table>
+				<p class="description">Если значение атрибута не найдено в справочнике, используется срок, заданный в карточке товара. Если атрибут не настроен, поведение остаётся прежним.</p>
 				<h2>Бессрочные лицензии</h2>
 				<table class="form-table" role="presentation"><tr><th>Поддержка внешним API</th><td><label><input type="checkbox" name="<?php echo $n; ?>[api_supports_perpetual]" value="1" <?php checked( $s['api_supports_perpetual'], 'yes' ); ?>> Внешний сервер принимает <code>license_perpetual: true</code> и <code>license_end: null</code></label><p class="description">Включайте только после добавления поддержки на сервере лицензий. Пока настройка выключена, отправка бессрочной лицензии будет остановлена с понятной ошибкой.</p></td></tr></table>
 				<?php submit_button(); ?>

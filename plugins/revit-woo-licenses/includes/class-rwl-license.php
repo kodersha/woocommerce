@@ -5,9 +5,34 @@ defined( 'ABSPATH' ) || exit;
 class RWL_License {
 
 	/**
+	 * Сначала учитывает срок из атрибута выбранной вариации, затем срок карточки товара.
+	 *
 	 * @return array{perpetual:bool,unit:string,value:int}|null
 	 */
 	public static function term_for_item( WC_Order_Item_Product $item ) {
+		$attribute_slug = RWL_Settings::get( 'attribute_slug' );
+
+		// Атрибут вариации имеет приоритет над общим сроком родительского товара.
+		if ( '' !== (string) $attribute_slug ) {
+			$attribute_value = self::attribute_value( $item, $attribute_slug );
+			if ( '' !== $attribute_value ) {
+				$attribute_term = self::parse_term( $attribute_value );
+				if ( null !== $attribute_term ) {
+					return $attribute_term;
+				}
+				if ( function_exists( 'wc_get_logger' ) ) {
+					wc_get_logger()->warning(
+						sprintf(
+							'Не удалось сопоставить срок лицензии «%s» для товара #%d. Проверьте duration_map.',
+							$attribute_value,
+							$item->get_product_id()
+						),
+						array( 'source' => 'rwl' )
+					);
+				}
+			}
+		}
+
 		$product_id = $item->get_product_id();
 		$term_key = get_post_meta( $product_id, RWL_Product::META_TERM, true );
 		$terms = array(
@@ -20,7 +45,7 @@ class RWL_License {
 			'perpetual' => array( 'perpetual' => true,  'unit' => 'none',   'value' => 0 ),
 		);
 
-		// Для старых товаров без нового поля безопасное значение — бессрочно.
+		// Обратная совместимость: старые товары без метаполя считаются бессрочными.
 		if ( '' === $term_key ) {
 			$term_key = 'perpetual';
 		}
@@ -83,10 +108,13 @@ class RWL_License {
 			}
 		}
 
+		// WooCommerce сохраняет выбранные атрибуты вариации в метаданных позиции заказа.
 		foreach ( $keys as $k ) {
-			$meta = $item->get_meta( $k );
-			if ( '' !== (string) $meta ) {
-				return self::term_name( $k, (string) $meta );
+			foreach ( array( $k, 'attribute_' . $k ) as $meta_key ) {
+				$meta = $item->get_meta( $meta_key, true );
+				if ( '' !== (string) $meta ) {
+					return self::term_name( $k, (string) $meta );
+				}
 			}
 		}
 		return '';
