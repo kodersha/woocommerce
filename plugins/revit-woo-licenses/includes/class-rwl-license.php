@@ -70,17 +70,45 @@ class RWL_License {
 		$attribute_slug = trim( (string) RWL_Settings::get( 'attribute_slug' ) );
 		if ( '' !== $attribute_slug ) {
 			$value = self::attribute_value( $item, $attribute_slug );
-			// Атрибут включён, но у позиции нет выбранного значения: по правилам магазина это бессрочная лицензия.
-			if ( '' === $value ) {
-				return array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
-			}
-			$term = self::parse_term( $value );
+			$term  = '' !== $value ? self::parse_term( $value ) : null;
 			if ( $term ) {
 				return $term;
 			}
+
+			// Проверяем все атрибуты вариации: в заказах и темах ключ может отличаться от настроенного slug.
+			$variation_id = (int) $item->get_variation_id();
+			if ( $variation_id ) {
+				$variation = wc_get_product( $variation_id );
+				if ( $variation ) {
+					foreach ( $variation->get_attributes() as $attribute_key => $attribute_value ) {
+						$candidate = self::term_name( $attribute_key, (string) $attribute_value );
+						$term = self::parse_term( $candidate );
+						if ( $term ) {
+							return $term;
+						}
+					}
+				}
+			}
+
+			// Затем проверяем значения метаданных позиции заказа.
+			foreach ( $item->get_meta_data() as $meta ) {
+				$data = $meta->get_data();
+				if ( ! isset( $data['value'] ) || ! is_scalar( $data['value'] ) || '' === (string) $data['value'] ) {
+					continue;
+				}
+				$meta_key = isset( $data['key'] ) ? (string) $data['key'] : '';
+				$normalized_key = 0 === strpos( $meta_key, 'attribute_' ) ? substr( $meta_key, 10 ) : $meta_key;
+				$candidate = self::term_name( $normalized_key, (string) $data['value'] );
+				$term = self::parse_term( $candidate );
+				if ( $term ) {
+					return $term;
+				}
+			}
+
+			// Отсутствующее или неизвестное значение не является доказательством бессрочной лицензии.
 			if ( function_exists( 'wc_get_logger' ) ) {
 				wc_get_logger()->error(
-					sprintf( 'Неизвестное значение срока «%s» для позиции заказа #%d. Лицензия не рассчитана; проверьте duration_map.', $value, $item->get_id() ),
+					sprintf( 'Не удалось определить срок лицензии: товар #%d, вариация #%d, позиция заказа #%d, атрибут %s, значение %s.', $item->get_product_id(), $item->get_variation_id(), $item->get_id(), $attribute_slug, '' !== $value ? $value : '(пусто)' ),
 					array( 'source' => 'rwl' )
 				);
 			}
@@ -129,9 +157,21 @@ class RWL_License {
 	private static function attribute_value( WC_Order_Item_Product $item, $slug ) {
 		$key = sanitize_title( $slug );
 		$keys = array_unique( array( $key, 0 === strpos( $key, 'pa_' ) ? substr( $key, 3 ) : 'pa_' . $key ) );
-		$variation_id = $item->get_variation_id();
 
-		// В первую очередь читаем фактический атрибут выбранной вариации.
+		// Сначала используем снимок выбранных атрибутов, сохранённый в заказе.
+		// Текущая вариация могла быть изменена после покупки.
+		foreach ( $item->get_meta_data() as $meta ) {
+			$data = $meta->get_data();
+			$meta_key = isset( $data['key'] ) ? (string) $data['key'] : '';
+			$normalized = 0 === strpos( $meta_key, 'attribute_' ) ? substr( $meta_key, 10 ) : $meta_key;
+			$normalized = sanitize_title( $normalized );
+			if ( in_array( $normalized, $keys, true ) && isset( $data['value'] ) && '' !== (string) $data['value'] ) {
+				return self::term_name( $normalized, (string) $data['value'] );
+			}
+		}
+
+		// Для старых заказов без сохранённого атрибута читаем текущую запись вариации.
+		$variation_id = $item->get_variation_id();
 		if ( $variation_id ) {
 			$variation = wc_get_product( $variation_id );
 			if ( $variation ) {
@@ -141,17 +181,6 @@ class RWL_License {
 						return self::term_name( $attribute_key, (string) $value );
 					}
 				}
-			}
-		}
-
-		// WooCommerce сохраняет выбранный атрибут в метаданных позиции заказа.
-		foreach ( $item->get_meta_data() as $meta ) {
-			$data = $meta->get_data();
-			$meta_key = isset( $data['key'] ) ? (string) $data['key'] : '';
-			$normalized = 0 === strpos( $meta_key, 'attribute_' ) ? substr( $meta_key, 10 ) : $meta_key;
-			$normalized = sanitize_title( $normalized );
-			if ( in_array( $normalized, $keys, true ) && isset( $data['value'] ) && '' !== (string) $data['value'] ) {
-				return self::term_name( $normalized, (string) $data['value'] );
 			}
 		}
 		return '';
@@ -189,6 +218,9 @@ class RWL_License {
 			}
 			if ( $normalize( $label ) !== $raw_normalized && sanitize_title( $label ) !== sanitize_title( $raw ) ) {
 				continue;
+			}
+			if ( in_array( strtolower( $definition ), array( 'perpetual', 'forever', 'never' ), true ) ) {
+				return array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
 			}
 			if ( preg_match( '/^(days|weeks|months):(\d+)$/i', $definition, $m ) && (int) $m[2] > 0 ) {
 				return array( 'perpetual' => false, 'unit' => strtolower( $m[1] ), 'value' => (int) $m[2] );
