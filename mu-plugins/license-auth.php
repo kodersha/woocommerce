@@ -242,7 +242,7 @@ final class License_Auth
             'status'      => ['wc-processing', 'wc-completed'],
             'limit'       => -1,
             'orderby'     => 'date',
-            'order'       => 'DESC',
+            'order'       => 'ASC',
             'return'      => 'objects',
         ]);
 
