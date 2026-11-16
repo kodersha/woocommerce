@@ -1,58 +1,47 @@
 <?php
 defined( 'ABSPATH' ) || exit;
 
-/** Определение срока лицензии. Возвращает тип и величину, а не только недели. */
+/** Определение и накопительный расчёт срока лицензии. */
 class RWL_License {
 
-	/**
-	 * Сначала учитывает срок из атрибута выбранной вариации, затем срок карточки товара.
-	 *
-	 * @return array{perpetual:bool,unit:string,value:int}|null
-	 */
 	public static function term_for_item( WC_Order_Item_Product $item ) {
-		$attribute_slug = RWL_Settings::get( 'attribute_slug' );
-
-		// Атрибут вариации имеет приоритет над общим сроком родительского товара.
-		if ( '' !== (string) $attribute_slug ) {
-			$attribute_value = self::attribute_value( $item, $attribute_slug );
-			if ( '' !== $attribute_value ) {
-				$attribute_term = self::parse_term( $attribute_value );
-				if ( null !== $attribute_term ) {
-					return $attribute_term;
-				}
-				if ( function_exists( 'wc_get_logger' ) ) {
-					wc_get_logger()->warning(
-						sprintf(
-							'Не удалось сопоставить срок лицензии «%s» для товара #%d. Проверьте duration_map.',
-							$attribute_value,
-							$item->get_product_id()
-						),
-						array( 'source' => 'rwl' )
-					);
-				}
+		$attribute_slug = trim( (string) RWL_Settings::get( 'attribute_slug' ) );
+		if ( '' !== $attribute_slug ) {
+			$value = self::attribute_value( $item, $attribute_slug );
+			// Атрибут включён, но у позиции нет выбранного значения: по правилам магазина это бессрочная лицензия.
+			if ( '' === $value ) {
+				return array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
 			}
+			$term = self::parse_term( $value );
+			if ( $term ) {
+				return $term;
+			}
+			if ( function_exists( 'wc_get_logger' ) ) {
+				wc_get_logger()->error(
+					sprintf( 'Неизвестное значение срока «%s» для позиции заказа #%d. Лицензия не рассчитана; проверьте duration_map.', $value, $item->get_id() ),
+					array( 'source' => 'rwl' )
+				);
+			}
+			return null;
 		}
 
 		$product_id = $item->get_product_id();
-		$term_key = get_post_meta( $product_id, RWL_Product::META_TERM, true );
+		$key = get_post_meta( $product_id, RWL_Product::META_TERM, true );
 		$terms = array(
-			'1_week'    => array( 'perpetual' => false, 'unit' => 'weeks',  'value' => 1 ),
-			'2_weeks'   => array( 'perpetual' => false, 'unit' => 'weeks',  'value' => 2 ),
-			'1_month'   => array( 'perpetual' => false, 'unit' => 'months', 'value' => 1 ),
-			'3_months'  => array( 'perpetual' => false, 'unit' => 'months', 'value' => 3 ),
-			'6_months'  => array( 'perpetual' => false, 'unit' => 'months', 'value' => 6 ),
+			'1_week' => array( 'perpetual' => false, 'unit' => 'weeks', 'value' => 1 ),
+			'2_weeks' => array( 'perpetual' => false, 'unit' => 'weeks', 'value' => 2 ),
+			'1_month' => array( 'perpetual' => false, 'unit' => 'months', 'value' => 1 ),
+			'3_months' => array( 'perpetual' => false, 'unit' => 'months', 'value' => 3 ),
+			'6_months' => array( 'perpetual' => false, 'unit' => 'months', 'value' => 6 ),
 			'12_months' => array( 'perpetual' => false, 'unit' => 'months', 'value' => 12 ),
-			'perpetual' => array( 'perpetual' => true,  'unit' => 'none',   'value' => 0 ),
+			'perpetual' => array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 ),
 		);
-
-		// Обратная совместимость: старые товары без метаполя считаются бессрочными.
-		if ( '' === $term_key ) {
-			$term_key = 'perpetual';
+		if ( '' === $key ) {
+			$key = 'perpetual';
 		}
-		return isset( $terms[ $term_key ] ) ? $terms[ $term_key ] : null;
+		return isset( $terms[ $key ] ) ? $terms[ $key ] : null;
 	}
 
-	/** Рассчитывает окончание срока; месяцы добавляются календарно с ограничением последним днём месяца. */
 	public static function end_timestamp( $start, array $term ) {
 		$date = new DateTimeImmutable( '@' . (int) $start );
 		if ( 'months' === $term['unit'] ) {
@@ -60,98 +49,180 @@ class RWL_License {
 			$month = (int) $date->format( 'n' ) + (int) $term['value'];
 			$year += (int) floor( ( $month - 1 ) / 12 );
 			$month = ( ( $month - 1 ) % 12 ) + 1;
-			$day = min( (int) $date->format( 'j' ), (int) ( new DateTimeImmutable( sprintf( '%04d-%02d-01', $year, $month ) ) )->modify( 'last day of this month' )->format( 'j' ) );
+			$first = new DateTimeImmutable( sprintf( '%04d-%02d-01', $year, $month ), new DateTimeZone( 'UTC' ) );
+			$day = min( (int) $date->format( 'j' ), (int) $first->modify( 'last day of this month' )->format( 'j' ) );
 			return $date->setDate( $year, $month, $day )->getTimestamp();
 		}
 		return $date->modify( '+' . (int) $term['value'] . ' ' . $term['unit'] )->getTimestamp();
 	}
 
-	/** Legacy-обёртка для стороннего кода, ожидающего срок в неделях. */
 	public static function weeks_for_item( WC_Order_Item_Product $item ) {
 		$term = self::term_for_item( $item );
-		if ( ! $term || $term['perpetual'] ) {
+		if ( ! $term || $term['perpetual'] || 'weeks' !== $term['unit'] ) {
 			return null;
 		}
-		if ( 'weeks' === $term['unit'] ) {
-			return $term['value'];
-		}
-		return null;
+		return $term['value'];
 	}
 
 	private static function attribute_value( WC_Order_Item_Product $item, $slug ) {
-		$key  = sanitize_title( $slug );
-		$keys = array_unique( array( $key, 0 === strpos( $key, 'pa_' ) ? $key : 'pa_' . $key ) );
-
+		$key = sanitize_title( $slug );
+		$keys = array_unique( array( $key, 0 === strpos( $key, 'pa_' ) ? substr( $key, 3 ) : 'pa_' . $key ) );
 		$variation_id = $item->get_variation_id();
+
+		// В первую очередь читаем фактический атрибут выбранной вариации.
 		if ( $variation_id ) {
 			$variation = wc_get_product( $variation_id );
 			if ( $variation ) {
-				$attrs = $variation->get_attributes();
-				foreach ( $keys as $k ) {
-					if ( isset( $attrs[ $k ] ) && '' !== (string) $attrs[ $k ] ) {
-						return self::term_name( $k, (string) $attrs[ $k ] );
+				foreach ( $variation->get_attributes() as $attribute_key => $value ) {
+					$attribute_key = sanitize_title( $attribute_key );
+					if ( in_array( $attribute_key, $keys, true ) && '' !== (string) $value ) {
+						return self::term_name( $attribute_key, (string) $value );
 					}
 				}
 			}
 		}
 
-		$product = wc_get_product( $item->get_product_id() );
-		if ( $product && ! $product->is_type( 'variable' ) ) {
-			foreach ( $keys as $k ) {
-				$value = $product->get_attribute( $k );
-				if ( '' !== trim( (string) $value ) ) {
-					$values = array_map( 'trim', explode( ',', (string) $value ) );
-					if ( 1 === count( $values ) ) {
-						return $values[0];
-					}
-				}
-			}
-		}
-
-		// WooCommerce сохраняет выбранные атрибуты вариации в метаданных позиции заказа.
-		foreach ( $keys as $k ) {
-			foreach ( array( $k, 'attribute_' . $k ) as $meta_key ) {
-				$meta = $item->get_meta( $meta_key, true );
-				if ( '' !== (string) $meta ) {
-					return self::term_name( $k, (string) $meta );
-				}
+		// WooCommerce сохраняет выбранный атрибут в метаданных позиции заказа.
+		foreach ( $item->get_meta_data() as $meta ) {
+			$data = $meta->get_data();
+			$meta_key = isset( $data['key'] ) ? (string) $data['key'] : '';
+			$normalized = 0 === strpos( $meta_key, 'attribute_' ) ? substr( $meta_key, 10 ) : $meta_key;
+			$normalized = sanitize_title( $normalized );
+			if ( in_array( $normalized, $keys, true ) && isset( $data['value'] ) && '' !== (string) $data['value'] ) {
+				return self::term_name( $normalized, (string) $data['value'] );
 			}
 		}
 		return '';
 	}
 
 	private static function term_name( $taxonomy, $value ) {
+		$taxonomy = sanitize_title( $taxonomy );
+		if ( 0 !== strpos( $taxonomy, 'pa_' ) ) {
+			$taxonomy = 'pa_' . $taxonomy;
+		}
 		if ( taxonomy_exists( $taxonomy ) ) {
 			$term = get_term_by( 'slug', $value, $taxonomy );
 			if ( $term && ! is_wp_error( $term ) ) {
 				return $term->name;
 			}
 		}
-		return $value;
+		return rawurldecode( (string) $value );
 	}
 
-	/** Форматы справочника: «31 день=days:31», «Полгода=months:6», legacy «1 год=52». */
 	private static function parse_term( $raw ) {
-		$raw = trim( (string) $raw );
+		$normalize = static function ( $value ) {
+			$value = html_entity_decode( trim( (string) $value ), ENT_QUOTES, 'UTF-8' );
+			$value = preg_replace( '/\s+/u', ' ', $value );
+			return function_exists( 'mb_strtolower' ) ? mb_strtolower( $value, 'UTF-8' ) : strtolower( $value );
+		};
+		$raw_normalized = $normalize( $raw );
 		$map = preg_split( '/\R/', (string) RWL_Settings::get( 'duration_map' ) );
 		foreach ( $map as $line ) {
 			if ( false === strpos( $line, '=' ) ) {
 				continue;
 			}
 			list( $label, $definition ) = array_map( 'trim', explode( '=', $line, 2 ) );
-			if ( '' === $label || mb_strtolower( $label ) !== mb_strtolower( $raw ) ) {
+			if ( '' === $label || $normalize( $label ) !== $raw_normalized ) {
 				continue;
 			}
 			if ( preg_match( '/^(days|weeks|months):(\d+)$/i', $definition, $m ) && (int) $m[2] > 0 ) {
 				return array( 'perpetual' => false, 'unit' => strtolower( $m[1] ), 'value' => (int) $m[2] );
 			}
-			// Старый формат: число означает недели.
 			if ( ctype_digit( $definition ) && (int) $definition > 0 ) {
 				return array( 'perpetual' => false, 'unit' => 'weeks', 'value' => (int) $definition );
 			}
 			return null;
 		}
-		// Не извлекаем числа из произвольной подписи: это могло бы скрыть ошибку настройки.
 		return null;
+	}
+
+	/** Возвращает накопленную лицензию по каждому плагину из оплаченных заказов. */
+	public static function aggregate_orders( $orders ) {
+		$purchases = array();
+		foreach ( $orders as $order ) {
+			if ( ! $order instanceof WC_Order ) {
+				continue;
+			}
+			$date = $order->get_date_paid() ? $order->get_date_paid() : $order->get_date_created();
+			$timestamp = $date ? $date->getTimestamp() : 0;
+			if ( ! $timestamp ) {
+				continue;
+			}
+			foreach ( $order->get_items( 'line_item' ) as $item ) {
+				if ( ! $item instanceof WC_Order_Item_Product ) {
+					continue;
+				}
+				$product_id = (int) $item->get_product_id();
+				if ( $product_id <= 0 || ! RWL_Product::is_plugin( $product_id ) ) {
+					continue;
+				}
+				$quantity = max( 0, (int) $item->get_quantity() );
+				if ( method_exists( $order, 'get_qty_refunded_for_item' ) ) {
+					$quantity -= absint( $order->get_qty_refunded_for_item( $item->get_id() ) );
+				}
+				if ( $quantity <= 0 ) {
+					continue;
+				}
+				$term = self::term_for_item( $item );
+				if ( ! $term ) {
+					continue;
+				}
+				$purchases[ $product_id ][] = array(
+					'start' => $timestamp,
+					'term' => $term,
+					'quantity' => $quantity,
+					'order' => $order,
+					'item' => $item,
+				);
+			}
+		}
+
+		$licenses = array();
+		foreach ( $purchases as $product_id => $rows ) {
+			usort( $rows, static function ( $a, $b ) {
+				if ( $a['start'] === $b['start'] ) {
+					return $a['item']->get_id() <=> $b['item']->get_id();
+				}
+				return $a['start'] <=> $b['start'];
+			} );
+			$first_start = $rows[0]['start'];
+			$cursor = $first_start;
+			$perpetual = false;
+			$latest = end( $rows );
+			foreach ( $rows as $row ) {
+				if ( ! empty( $row['term']['perpetual'] ) ) {
+					$perpetual = true;
+					break;
+				}
+				for ( $i = 0; $i < $row['quantity']; $i++ ) {
+					$period_start = max( $row['start'], $cursor );
+					$cursor = self::end_timestamp( $period_start, $row['term'] );
+				}
+			}
+			$product = wc_get_product( $product_id );
+			$licenses[ $product_id ] = array(
+				'plugin_id' => (int) $product_id,
+				'name' => $product ? $product->get_name() : $latest['item']->get_name(),
+				'start' => $first_start,
+				'end' => $perpetual ? null : $cursor,
+				'perpetual' => $perpetual,
+				'latest_order' => $latest['order'],
+				'latest_item' => $latest['item'],
+				'latest_purchase' => $latest['start'],
+			);
+		}
+		return $licenses;
+	}
+
+	public static function aggregate_user( $user_id ) {
+		$orders = wc_get_orders( array(
+			'customer_id' => absint( $user_id ),
+			'status' => array( 'wc-processing', 'wc-completed' ),
+			'limit' => -1,
+			'orderby' => 'date',
+			'order' => 'ASC',
+			'return' => 'objects',
+		) );
+		return self::aggregate_orders( $orders );
 	}
 }
