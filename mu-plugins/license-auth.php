@@ -255,7 +255,7 @@ final class License_Auth
         }
 
         $now = time();
-        $aggregated = RWL_License::aggregate_user($user_id);
+        $aggregated = RWL_License::aggregate_orders($orders);
         $licenses = [];
 
         foreach ($aggregated as $row) {
