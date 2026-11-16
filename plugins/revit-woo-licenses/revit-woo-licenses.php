@@ -37,6 +37,7 @@ add_action( 'plugins_loaded', function () {
 	}
 	RWL_Settings::init();
 	RWL_Product::init();
+	RWL_Product::enqueue_variation_fix();
 	RWL_Sender::init();
 	RWL_Importer::init();
 	RWL_Account::init();
