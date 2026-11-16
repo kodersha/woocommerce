@@ -33,13 +33,20 @@ class RWL_License {
 				if ( ! $item instanceof WC_Order_Item_Product || ! self::is_plugin_item( $item ) ) {
 					continue;
 				}
-				$product_id = $item->get_variation_id() ? $item->get_variation_id() : $item->get_product_id();
-				if ( (int) $row['product_id'] !== (int) $product_id ) {
+				$parent_id    = (int) $item->get_product_id();
+				$variation_id = (int) $item->get_variation_id();
+				$row_product_id = isset( $row['product_id'] ) ? (int) $row['product_id'] : 0;
+				if ( $row_product_id !== $parent_id && ( ! $variation_id || $row_product_id !== $variation_id ) ) {
 					continue;
 				}
 				$license = self::license_for_order_item( $item, $order );
 				if ( $license ) {
-					$row['access_expires'] = $license['perpetual'] ? null : wp_date( 'Y-m-d', $license['end'] );
+					$row['access_expires'] = $license['perpetual'] ? null : wp_date( 'Y-m-d H:i:s', $license['end'] );
+				} else {
+					wc_get_logger()->warning(
+						sprintf( 'Не удалось рассчитать дату окончания лицензии для заказа #%d, позиция #%d.', $order->get_id(), $item->get_id() ),
+						array( 'source' => 'rwl' )
+					);
 				}
 				break;
 			}
@@ -177,10 +184,10 @@ class RWL_License {
 				continue;
 			}
 			list( $label, $definition ) = array_map( 'trim', explode( '=', $line, 2 ) );
-			if ( '' === $label || $normalize( $label ) !== $raw_normalized ) {
-				if ( sanitize_title( $label ) !== sanitize_title( $raw ) ) {
-					continue;
-				}
+			if ( '' === $label ) {
+				continue;
+			}
+			if ( $normalize( $label ) !== $raw_normalized && sanitize_title( $label ) !== sanitize_title( $raw ) ) {
 				continue;
 			}
 			if ( preg_match( '/^(days|weeks|months):(\d+)$/i', $definition, $m ) && (int) $m[2] > 0 ) {
