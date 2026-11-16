@@ -21,7 +21,22 @@ class RWL_Product {
 		);
 	}
 
+	/** Повторно запускает поиск вариации, если тема меняет select до инициализации WooCommerce. */
+	public static function enqueue_variation_fix() {
+		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
+			return;
+		}
+		$product = wc_get_product( get_queried_object_id() );
+		if ( ! $product instanceof WC_Product || ! $product->is_type( 'variable' ) ) {
+			return;
+		}
+		wp_enqueue_script( 'wc-add-to-cart-variation' );
+		$script = "jQuery(function($){var init=function(){ $('.variations_form').each(function(){var form=$(this);var fields=form.find('.variations select');if(fields.length && fields.filter(function(){return !$(this).val();}).length===0){form.trigger('check_variations');}});};window.setTimeout(init,180);});";
+		wp_add_inline_script( 'wc-add-to-cart-variation', $script, 'after' );
+	}
+
 	public static function init() {
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_variation_fix' ), 20 );
 		add_action( 'woocommerce_product_options_general_product_data', array( __CLASS__, 'render_fields' ) );
 		add_action( 'woocommerce_process_product_meta', array( __CLASS__, 'save' ) );
 		add_action( 'woocommerce_single_product_summary', array( __CLASS__, 'render_public' ), 25 );
