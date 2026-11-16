@@ -21,7 +21,7 @@ class RWL_Product {
 		);
 	}
 
-	/** Повторно запускает поиск вариации, если тема меняет select до инициализации WooCommerce. */
+	/** Синхронизирует предвыбранные значения атрибутов с формой вариаций WooCommerce. */
 	public static function enqueue_variation_fix() {
 		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
 			return;
@@ -30,8 +30,28 @@ class RWL_Product {
 		if ( ! $product instanceof WC_Product || ! $product->is_type( 'variable' ) ) {
 			return;
 		}
+
 		wp_enqueue_script( 'wc-add-to-cart-variation' );
-		$script = "jQuery(function($){var init=function(){ $('.variations_form').each(function(){var form=$(this);var fields=form.find('.variations select');if(fields.length && fields.filter(function(){return !$(this).val();}).length===0){form.trigger('check_variations');}});};window.setTimeout(init,180);});";
+		$script = "jQuery(function($){
+			var syncVariation = function(form){
+				var fields = form.find('.variations select');
+				if (!fields.length || fields.filter(function(){return !$(this).val();}).length) { return; }
+				if (parseInt(form.find('input.variation_id').val(), 10) > 0) { return; }
+				// Некоторые темы выставляют выбранный option после инициализации WooCommerce,
+				// но не отправляют change. Повторное событие заставляет Woo найти вариацию.
+				fields.last().trigger('change');
+				form.trigger('check_variations');
+			};
+			var scheduleSync = function(form){
+				[0, 180, 500].forEach(function(delay){
+					window.setTimeout(function(){syncVariation(form);}, delay);
+				});
+			};
+			$(document).on('wc_variation_form', '.variations_form', function(){
+				scheduleSync($(this));
+			});
+			$('.variations_form').each(function(){scheduleSync($(this));});
+		});";
 		wp_add_inline_script( 'wc-add-to-cart-variation', $script, 'after' );
 	}
 
