@@ -157,9 +157,21 @@ class RWL_License {
 	private static function attribute_value( WC_Order_Item_Product $item, $slug ) {
 		$key = sanitize_title( $slug );
 		$keys = array_unique( array( $key, 0 === strpos( $key, 'pa_' ) ? substr( $key, 3 ) : 'pa_' . $key ) );
-		$variation_id = $item->get_variation_id();
 
-		// В первую очередь читаем фактический атрибут выбранной вариации.
+		// Сначала используем снимок выбранных атрибутов, сохранённый в заказе.
+		// Текущая вариация могла быть изменена после покупки.
+		foreach ( $item->get_meta_data() as $meta ) {
+			$data = $meta->get_data();
+			$meta_key = isset( $data['key'] ) ? (string) $data['key'] : '';
+			$normalized = 0 === strpos( $meta_key, 'attribute_' ) ? substr( $meta_key, 10 ) : $meta_key;
+			$normalized = sanitize_title( $normalized );
+			if ( in_array( $normalized, $keys, true ) && isset( $data['value'] ) && '' !== (string) $data['value'] ) {
+				return self::term_name( $normalized, (string) $data['value'] );
+			}
+		}
+
+		// Для старых заказов без сохранённого атрибута читаем текущую запись вариации.
+		$variation_id = $item->get_variation_id();
 		if ( $variation_id ) {
 			$variation = wc_get_product( $variation_id );
 			if ( $variation ) {
@@ -169,17 +181,6 @@ class RWL_License {
 						return self::term_name( $attribute_key, (string) $value );
 					}
 				}
-			}
-		}
-
-		// WooCommerce сохраняет выбранный атрибут в метаданных позиции заказа.
-		foreach ( $item->get_meta_data() as $meta ) {
-			$data = $meta->get_data();
-			$meta_key = isset( $data['key'] ) ? (string) $data['key'] : '';
-			$normalized = 0 === strpos( $meta_key, 'attribute_' ) ? substr( $meta_key, 10 ) : $meta_key;
-			$normalized = sanitize_title( $normalized );
-			if ( in_array( $normalized, $keys, true ) && isset( $data['value'] ) && '' !== (string) $data['value'] ) {
-				return self::term_name( $normalized, (string) $data['value'] );
 			}
 		}
 		return '';
