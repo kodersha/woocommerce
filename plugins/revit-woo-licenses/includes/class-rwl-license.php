@@ -30,7 +30,11 @@ class RWL_License {
 						array( 'source' => 'rwl' )
 					);
 				}
+				// Атрибут задан, но значение не распознано: не подменяем его сроком товара.
+				return null;
 			}
+			// Настроенный атрибут отсутствует в купленной вариации — явно бессрочная лицензия.
+			return array( 'perpetual' => true, 'unit' => 'none', 'value' => 0 );
 		}
 
 		$product_id = $item->get_product_id();
@@ -130,6 +134,12 @@ class RWL_License {
 		return $value;
 	}
 
+	/** Нормализует подписи атрибутов для сравнения без учёта регистра и лишних пробелов. */
+	private static function normalize_attribute_value( $value ) {
+		$value = trim( preg_replace( '/\\s+/u', ' ', (string) $value ) );
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $value ) : strtolower( $value );
+	}
+
 	/** Форматы справочника: «31 день=days:31», «Полгода=months:6», legacy «1 год=52». */
 	private static function parse_term( $raw ) {
 		$raw = trim( (string) $raw );
@@ -139,8 +149,11 @@ class RWL_License {
 				continue;
 			}
 			list( $label, $definition ) = array_map( 'trim', explode( '=', $line, 2 ) );
-			if ( '' === $label || mb_strtolower( $label ) !== mb_strtolower( $raw ) ) {
-				continue;
+			if ( '' === $label || self::normalize_attribute_value( $label ) !== self::normalize_attribute_value( $raw ) ) {
+				// Допускаем как подпись термина, так и его slug из order item meta.
+				if ( sanitize_title( $label ) !== sanitize_title( $raw ) ) {
+					continue;
+				}
 			}
 			if ( preg_match( '/^(days|weeks|months):(\d+)$/i', $definition, $m ) && (int) $m[2] > 0 ) {
 				return array( 'perpetual' => false, 'unit' => strtolower( $m[1] ), 'value' => (int) $m[2] );
