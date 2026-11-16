@@ -123,6 +123,9 @@ class RWL_License {
 			}
 			list( $label, $definition ) = array_map( 'trim', explode( '=', $line, 2 ) );
 			if ( '' === $label || $normalize( $label ) !== $raw_normalized ) {
+				if ( sanitize_title( $label ) !== sanitize_title( $raw ) ) {
+					continue;
+				}
 				continue;
 			}
 			if ( preg_match( '/^(days|weeks|months):(\d+)$/i', $definition, $m ) && (int) $m[2] > 0 ) {
