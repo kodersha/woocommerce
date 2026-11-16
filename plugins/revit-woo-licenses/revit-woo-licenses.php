@@ -36,6 +36,7 @@ add_action( 'plugins_loaded', function () {
 		require_once RWL_DIR . 'includes/class-rwl-' . $f . '.php';
 	}
 	RWL_Settings::init();
+	RWL_License::init();
 	RWL_Product::init();
 	RWL_Sender::init();
 	RWL_Importer::init();
