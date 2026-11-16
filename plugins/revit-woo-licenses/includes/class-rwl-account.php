@@ -46,31 +46,39 @@ class RWL_Account {
 		echo '</tbody></table></div>';
 	}
 	private static function get_user_licenses( $user_id ) {
-		$orders = wc_get_orders( array( 'customer_id' => absint( $user_id ), 'status' => array( 'wc-processing', 'wc-completed' ), 'limit' => -1, 'orderby' => 'date', 'order' => 'DESC', 'return' => 'objects' ) );
+		$orders = wc_get_orders( array( 'customer_id' => absint( $user_id ), 'status' => array( 'wc-processing', 'wc-completed' ), 'limit' => -1, 'orderby' => 'date', 'order' => 'ASC', 'return' => 'objects' ) );
 		$licenses = array(); $now = time();
 		foreach ( $orders as $order ) {
 			if ( ! $order instanceof WC_Order ) continue;
 			foreach ( $order->get_items( 'line_item' ) as $item ) {
 				if ( ! $item instanceof WC_Order_Item_Product ) continue;
 				$product_id = $item->get_product_id();
-				if ( ! RWL_Product::is_plugin( $product_id ) || isset( $licenses[ $product_id ] ) ) continue;
+				if ( ! RWL_Product::is_plugin( $product_id ) ) continue;
 				$term = RWL_License::term_for_item( $item );
 				if ( ! $term ) continue;
 				$date = $order->get_date_paid() ? $order->get_date_paid() : $order->get_date_created();
 				$start = $date ? $date->getTimestamp() : 0;
 				if ( ! $start ) continue;
-				$perpetual = ! empty( $term['perpetual'] );
+				$previous = $licenses[ $product_id ] ?? null;
+				$perpetual = ! empty( $term['perpetual'] ) || ( $previous && ! empty( $previous['perpetual'] ) );
+				$license_start = $previous ? $previous['start_timestamp'] : $start;
 				$end = null;
-				if ( ! $perpetual ) $end = RWL_License::end_timestamp( $start, $term );
+				if ( ! $perpetual ) {
+					$previous_end = $previous ? (int) $previous['end_timestamp'] : 0;
+					$end = RWL_License::end_timestamp( max( $start, $previous_end ), $term );
+				}
 				$product = wc_get_product( $product_id );
 				$licenses[ $product_id ] = array(
 					'name' => $product ? $product->get_name() : $item->get_name(),
 					'order_number' => $order->get_order_number(),
 					'order_url' => $order->get_view_order_url(),
-					'starts_at' => wp_date( 'd.m.Y H:i', $start ),
+					'starts_at' => wp_date( 'd.m.Y H:i', $license_start ),
 					'ends_at' => $perpetual ? 'Бессрочно' : wp_date( 'd.m.Y H:i', $end ),
 					'active' => $perpetual || $end > $now,
-					'sort' => $start,
+					'perpetual' => $perpetual,
+					'start_timestamp' => $license_start,
+					'end_timestamp' => $end,
+					'sort' => $license_start,
 				);
 			}
 		}
