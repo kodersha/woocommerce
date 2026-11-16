@@ -115,11 +115,11 @@ class RWL_Settings {
 				<h2>Срок лицензии по атрибуту товара (необязательно)</h2>
 				<table class="form-table" role="presentation">
 					<tr><th>Атрибут срока</th><td><input type="text" class="regular-text" name="<?php echo $n; ?>[attribute_slug]" value="<?php echo esc_attr( $s['attribute_slug'] ); ?>" placeholder="srok или pa_srok">
-						<p class="description">Укажите slug глобального атрибута WooCommerce (без префикса pa_ или с ним). Выбранное значение вариации будет иметь приоритет над сроком, заданным в карточке товара.</p></td></tr>
+						<p class="description">Укажите slug глобального атрибута WooCommerce (без префикса pa_ или с ним). Срок определяется по фактическому значению выбранной вариации.</p></td></tr>
 					<tr><th>Соответствие значений срокам</th><td><textarea class="large-text code" rows="6" name="<?php echo $n; ?>[duration_map]"><?php echo esc_textarea( $s['duration_map'] ); ?></textarea>
 						<p class="description">По одной записи на строку: <code>Название значения=единица:число</code>. Например:<br><code>31 день=days:31</code><br><code>Полгода=months:6</code><br><code>1 год=52</code> (старый формат — недели).</p></td></tr>
 				</table>
-				<p class="description">Если значение атрибута не найдено в справочнике, используется срок, заданный в карточке товара. Если атрибут не настроен, поведение остаётся прежним.</p>
+				<p class="description">Если атрибут настроен, пустое значение означает бессрочную лицензию; неизвестное значение блокирует расчёт и записывается в журнал. Срок из карточки товара используется только когда атрибут срока не настроен.</p>
 				<h2>Бессрочные лицензии</h2>
 				<table class="form-table" role="presentation"><tr><th>Поддержка внешним API</th><td><label><input type="checkbox" name="<?php echo $n; ?>[api_supports_perpetual]" value="1" <?php checked( $s['api_supports_perpetual'], 'yes' ); ?>> Внешний сервер принимает <code>license_perpetual: true</code> и <code>license_end: null</code></label><p class="description">Включайте только после добавления поддержки на сервере лицензий. Пока настройка выключена, отправка бессрочной лицензии будет остановлена с понятной ошибкой.</p></td></tr></table>
 				<?php submit_button(); ?>
