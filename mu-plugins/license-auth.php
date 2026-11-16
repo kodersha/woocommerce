@@ -242,7 +242,7 @@ final class License_Auth
             'status'      => ['wc-processing', 'wc-completed'],
             'limit'       => -1,
             'orderby'     => 'date',
-            'order'       => 'DESC',
+            'order'       => 'ASC',
             'return'      => 'objects',
         ]);
 
@@ -268,7 +268,7 @@ final class License_Auth
                 }
 
                 $plugin_id = (int) $item->get_product_id();
-                if ($plugin_id <= 0 || !RWL_Product::is_plugin($plugin_id) || isset($licenses[$plugin_id])) {
+                if ($plugin_id <= 0 || !RWL_Product::is_plugin($plugin_id)) {
                     continue;
                 }
 
@@ -290,17 +290,27 @@ final class License_Auth
                     continue;
                 }
 
-                $perpetual = !empty($term['perpetual']);
-                $end = $perpetual ? null : RWL_License::end_timestamp($start, $term);
+                $previous = $licenses[$plugin_id] ?? null;
+                $perpetual = !empty($term['perpetual']) || ( $previous && !empty($previous['license_perpetual']) );
+                $license_start = $previous ? strtotime($previous['license_start']) : $start;
+                $end = null;
+
+                if (!$perpetual) {
+                    $previous_end = $previous && !empty($previous['license_end']) ? strtotime($previous['license_end']) : 0;
+                    // Каждая следующая покупка продлевает лицензию от более поздней даты:
+                    // текущего окончания или даты оплаты нового заказа.
+                    $extension_start = max($start, $previous_end ?: 0);
+                    $end = RWL_License::end_timestamp($extension_start, $term);
+                }
 
                 $product = wc_get_product($plugin_id);
                 $licenses[$plugin_id] = [
-                    'plugin_id'       => $plugin_id,
-                    'name'            => $product ? $product->get_name() : $item->get_name(),
-                    'license_start'   => gmdate('Y-m-d\\TH:i:s\\Z', $start),
-                    'license_end'     => $end ? gmdate('Y-m-d\\TH:i:s\\Z', $end) : null,
+                    'plugin_id'         => $plugin_id,
+                    'name'              => $product ? $product->get_name() : $item->get_name(),
+                    'license_start'     => gmdate('Y-m-d\\TH:i:s\\Z', $license_start ?: $start),
+                    'license_end'       => $end ? gmdate('Y-m-d\\TH:i:s\\Z', $end) : null,
                     'license_perpetual' => $perpetual,
-                    'status'          => $perpetual || $end > $now ? 'active' : 'expired',
+                    'status'            => $perpetual || $end > $now ? 'active' : 'expired',
                 ];
             }
         }
