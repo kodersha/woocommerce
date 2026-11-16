@@ -27,7 +27,7 @@ class RWL_Product {
 		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
 			return;
 		}
-		global $product;
+		$product = wc_get_product( get_queried_object_id() );
 		if ( ! $product instanceof WC_Product || ! $product->is_type( 'variable' ) ) {
 			return;
 		}
