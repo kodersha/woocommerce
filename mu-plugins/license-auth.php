@@ -255,64 +255,20 @@ final class License_Auth
         }
 
         $now = time();
+        $aggregated = RWL_License::aggregate_orders($orders);
         $licenses = [];
 
-        foreach ($orders as $order) {
-            if (!$order instanceof WC_Order) {
-                continue;
-            }
-
-            foreach ($order->get_items('line_item') as $item) {
-                if (!$item instanceof WC_Order_Item_Product) {
-                    continue;
-                }
-
-                $plugin_id = (int) $item->get_product_id();
-                if ($plugin_id <= 0 || !RWL_Product::is_plugin($plugin_id)) {
-                    continue;
-                }
-
-                // Do not issue a license for a refunded line item.
-                if (method_exists($order, 'get_qty_refunded_for_item')
-                    && absint($order->get_qty_refunded_for_item($item->get_id())) > 0) {
-                    continue;
-                }
-
-                $term = RWL_License::term_for_item($item);
-                if (!$term) {
-                    continue;
-                }
-
-                $paid_date = $order->get_date_paid();
-                $created_date = $order->get_date_created();
-                $start = $paid_date ? $paid_date->getTimestamp() : ($created_date ? $created_date->getTimestamp() : 0);
-                if (!$start) {
-                    continue;
-                }
-
-                $previous = $licenses[$plugin_id] ?? null;
-                $perpetual = !empty($term['perpetual']) || ( $previous && !empty($previous['license_perpetual']) );
-                $license_start = $previous ? strtotime($previous['license_start']) : $start;
-                $end = null;
-
-                if (!$perpetual) {
-                    $previous_end = $previous && !empty($previous['license_end']) ? strtotime($previous['license_end']) : 0;
-                    // Каждая следующая покупка продлевает лицензию от более поздней даты:
-                    // текущего окончания или даты оплаты нового заказа.
-                    $extension_start = max($start, $previous_end ?: 0);
-                    $end = RWL_License::end_timestamp($extension_start, $term);
-                }
-
-                $product = wc_get_product($plugin_id);
-                $licenses[$plugin_id] = [
-                    'plugin_id'         => $plugin_id,
-                    'name'              => $product ? $product->get_name() : $item->get_name(),
-                    'license_start'     => gmdate('Y-m-d\\TH:i:s\\Z', $license_start ?: $start),
-                    'license_end'       => $end ? gmdate('Y-m-d\\TH:i:s\\Z', $end) : null,
-                    'license_perpetual' => $perpetual,
-                    'status'            => $perpetual || $end > $now ? 'active' : 'expired',
-                ];
-            }
+        foreach ($aggregated as $row) {
+            $perpetual = !empty($row['perpetual']);
+            $end = $row['end'];
+            $licenses[] = [
+                'plugin_id'         => (int) $row['plugin_id'],
+                'name'              => $row['name'],
+                'license_start'     => gmdate('Y-m-d\\TH:i:s\\Z', $row['start']),
+                'license_end'       => $end ? gmdate('Y-m-d\\TH:i:s\\Z', $end) : null,
+                'license_perpetual' => $perpetual,
+                'status'            => $perpetual || $end > $now ? 'active' : 'expired',
+            ];
         }
 
         return rest_ensure_response(array_values($licenses));
