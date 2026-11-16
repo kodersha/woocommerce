@@ -4,6 +4,61 @@ defined( 'ABSPATH' ) || exit;
 /** Определение и накопительный расчёт срока лицензии. */
 class RWL_License {
 
+	/** Подключает срок лицензии к сроку доступа к скачиванию WooCommerce. */
+	public static function init() {
+		add_filter( 'woocommerce_downloadable_file_permission', array( __CLASS__, 'set_download_permission_expiry' ), 10, 5 );
+		add_filter( 'woocommerce_order_get_downloadable_items', array( __CLASS__, 'filter_order_download_expiry' ), 10, 2 );
+	}
+
+	/** Устанавливает фактическое окончание доступа при создании разрешения на скачивание. */
+	public static function set_download_permission_expiry( $download, $product, $order, $qty, $item ) {
+		if ( ! $item instanceof WC_Order_Item_Product || ! self::is_plugin_item( $item ) ) {
+			return $download;
+		}
+		$license = self::license_for_order_item( $item, $order );
+		if ( $license ) {
+			$download->set_access_expires( $license['perpetual'] ? null : $license['end'] );
+		}
+		return $download;
+	}
+
+	/** Показывает рассчитанную дату и для разрешений, созданных до установки этого исправления. */
+	public static function filter_order_download_expiry( $downloads, $order ) {
+		if ( ! $order instanceof WC_Order || empty( $downloads ) ) {
+			return $downloads;
+		}
+		$items = $order->get_items( 'line_item' );
+		foreach ( $downloads as &$row ) {
+			foreach ( $items as $item ) {
+				if ( ! $item instanceof WC_Order_Item_Product || ! self::is_plugin_item( $item ) ) {
+					continue;
+				}
+				$product_id = $item->get_variation_id() ? $item->get_variation_id() : $item->get_product_id();
+				if ( (int) $row['product_id'] !== (int) $product_id ) {
+					continue;
+				}
+				$license = self::license_for_order_item( $item, $order );
+				if ( $license ) {
+					$row['access_expires'] = $license['perpetual'] ? null : wp_date( 'Y-m-d', $license['end'] );
+				}
+				break;
+			}
+		}
+		unset( $row );
+		return $downloads;
+	}
+
+	private static function is_plugin_item( $item ) {
+		return $item instanceof WC_Order_Item_Product && RWL_Product::is_plugin( (int) $item->get_product_id() );
+	}
+
+	private static function license_for_order_item( $item, $order ) {
+		$product_id = (int) $item->get_product_id();
+		$user_id = (int) $order->get_customer_id();
+		$licenses = $user_id ? self::aggregate_user( $user_id ) : self::aggregate_orders( array( $order ) );
+		return isset( $licenses[ $product_id ] ) ? $licenses[ $product_id ] : null;
+	}
+
 	public static function term_for_item( WC_Order_Item_Product $item ) {
 		$attribute_slug = trim( (string) RWL_Settings::get( 'attribute_slug' ) );
 		if ( '' !== $attribute_slug ) {
