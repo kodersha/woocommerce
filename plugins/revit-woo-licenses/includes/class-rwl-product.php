@@ -21,7 +21,6 @@ class RWL_Product {
 		);
 	}
 
-
 	/** Повторно запускает поиск вариации, если тема меняет select до инициализации WooCommerce. */
 	public static function enqueue_variation_fix() {
 		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
