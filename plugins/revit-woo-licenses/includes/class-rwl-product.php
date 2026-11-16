@@ -36,7 +36,7 @@ class RWL_Product {
 			var syncVariation = function(form){
 				var fields = form.find('.variations select');
 				if (!fields.length || fields.filter(function(){return !$(this).val();}).length) { return; }
-				if (form.find('input.variation_id').val()) { return; }
+				if (parseInt(form.find('input.variation_id').val(), 10) > 0) { return; }
 				// Некоторые темы выставляют выбранный option после инициализации WooCommerce,
 				// но не отправляют change. Повторное событие заставляет Woo найти вариацию.
 				fields.last().trigger('change');
