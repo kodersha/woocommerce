@@ -4,7 +4,7 @@ defined( 'ABSPATH' ) || exit;
 /** Лицензии покупателя в личном кабинете WooCommerce. */
 class RWL_Account {
 	const ENDPOINT = 'licenses';
-	const REWRITE_VERSION = '1';
+	const REWRITE_VERSION = '1.1';
 
 	public static function init() {
 		add_action( 'init', array( __CLASS__, 'add_endpoint' ) );
@@ -35,10 +35,10 @@ class RWL_Account {
 		$licenses = self::get_user_licenses( $user_id );
 		echo '<h2>Мои лицензии</h2>';
 		if ( ! $licenses ) { echo '<p>Пока нет приобретённых лицензий.</p>'; return; }
-		echo '<div class="rwl-account-licenses" style="overflow-x:auto"><table class="shop_table shop_table_responsive my_account_orders"><thead><tr><th>Продукт</th><th>Заказ</th><th>Начало</th><th>Действует до</th><th>Статус</th></tr></thead><tbody>';
+		echo '<div class="rwl-account-licenses" style="overflow-x:auto"><table class="shop_table shop_table_responsive my_account_orders"><thead><tr><th>Продукт</th><th>Последний заказ</th><th>Начало</th><th>Действует до</th><th>Статус</th></tr></thead><tbody>';
 		foreach ( $licenses as $license ) {
 			echo '<tr><td data-title="Продукт">' . esc_html( $license['name'] ) . '</td>';
-			echo '<td data-title="Заказ"><a href="' . esc_url( $license['order_url'] ) . '">#' . esc_html( $license['order_number'] ) . '</a></td>';
+			echo '<td data-title="Последний заказ"><a href="' . esc_url( $license['order_url'] ) . '">#' . esc_html( $license['order_number'] ) . '</a></td>';
 			echo '<td data-title="Начало">' . esc_html( $license['starts_at'] ) . '</td>';
 			echo '<td data-title="Действует до">' . esc_html( $license['ends_at'] ) . '</td>';
 			echo '<td data-title="Статус">' . esc_html( $license['active'] ? 'Активна' : 'Истекла' ) . '</td></tr>';
@@ -46,35 +46,23 @@ class RWL_Account {
 		echo '</tbody></table></div>';
 	}
 	private static function get_user_licenses( $user_id ) {
-		$orders = wc_get_orders( array( 'customer_id' => absint( $user_id ), 'status' => array( 'wc-processing', 'wc-completed' ), 'limit' => -1, 'orderby' => 'date', 'order' => 'DESC', 'return' => 'objects' ) );
-		$licenses = array(); $now = time();
-		foreach ( $orders as $order ) {
-			if ( ! $order instanceof WC_Order ) continue;
-			foreach ( $order->get_items( 'line_item' ) as $item ) {
-				if ( ! $item instanceof WC_Order_Item_Product ) continue;
-				$product_id = $item->get_product_id();
-				if ( ! RWL_Product::is_plugin( $product_id ) || isset( $licenses[ $product_id ] ) ) continue;
-				$term = RWL_License::term_for_item( $item );
-				if ( ! $term ) continue;
-				$date = $order->get_date_paid() ? $order->get_date_paid() : $order->get_date_created();
-				$start = $date ? $date->getTimestamp() : 0;
-				if ( ! $start ) continue;
-				$perpetual = ! empty( $term['perpetual'] );
-				$end = null;
-				if ( ! $perpetual ) $end = RWL_License::end_timestamp( $start, $term );
-				$product = wc_get_product( $product_id );
-				$licenses[ $product_id ] = array(
-					'name' => $product ? $product->get_name() : $item->get_name(),
-					'order_number' => $order->get_order_number(),
-					'order_url' => $order->get_view_order_url(),
-					'starts_at' => wp_date( 'd.m.Y H:i', $start ),
-					'ends_at' => $perpetual ? 'Бессрочно' : wp_date( 'd.m.Y H:i', $end ),
-					'active' => $perpetual || $end > $now,
-					'sort' => $start,
-				);
-			}
+		$aggregated = RWL_License::aggregate_user( $user_id );
+		$now = time();
+		$licenses = array();
+		foreach ( $aggregated as $row ) {
+			$order = $row['latest_order'];
+			$perpetual = $row['perpetual'];
+			$end = $row['end'];
+			$licenses[] = array(
+				'name' => $row['name'],
+				'order_number' => $order->get_order_number(),
+				'order_url' => $order->get_view_order_url(),
+				'starts_at' => wp_date( 'd.m.Y H:i', $row['start'] ),
+				'ends_at' => $perpetual ? 'Бессрочно' : wp_date( 'd.m.Y H:i', $end ),
+				'active' => $perpetual || $end > $now,
+				'sort' => $row['latest_purchase'],
+			);
 		}
-		$licenses = array_values( $licenses );
 		usort( $licenses, static function ( $a, $b ) { return $b['sort'] <=> $a['sort']; } );
 		return $licenses;
 	}
