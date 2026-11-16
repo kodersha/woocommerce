@@ -37,6 +37,7 @@ class RWL_Product {
 	}
 
 	public static function init() {
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_variation_fix' ), 20 );
 		add_action( 'woocommerce_product_options_general_product_data', array( __CLASS__, 'render_fields' ) );
 		add_action( 'woocommerce_process_product_meta', array( __CLASS__, 'save' ) );
 		add_action( 'woocommerce_single_product_summary', array( __CLASS__, 'render_public' ), 25 );
