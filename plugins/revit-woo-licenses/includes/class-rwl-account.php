@@ -35,10 +35,10 @@ class RWL_Account {
 		$licenses = self::get_user_licenses( $user_id );
 		echo '<h2>Мои лицензии</h2>';
 		if ( ! $licenses ) { echo '<p>Пока нет приобретённых лицензий.</p>'; return; }
-		echo '<div class="rwl-account-licenses" style="overflow-x:auto"><table class="shop_table shop_table_responsive my_account_orders"><thead><tr><th>Продукт</th><th>Последний заказ</th><th>Начало</th><th>Действует до</th><th>Статус</th></tr></thead><tbody>';
+		echo '<div class="rwl-account-licenses" style="overflow-x:auto"><table class="shop_table shop_table_responsive my_account_orders"><thead><tr><th>Продукт</th><th>Заказ</th><th>Начало</th><th>Действует до</th><th>Статус</th></tr></thead><tbody>';
 		foreach ( $licenses as $license ) {
 			echo '<tr><td data-title="Продукт">' . esc_html( $license['name'] ) . '</td>';
-			echo '<td data-title="Последний заказ"><a href="' . esc_url( $license['order_url'] ) . '">#' . esc_html( $license['order_number'] ) . '</a></td>';
+			echo '<td data-title="Заказ"><a href="' . esc_url( $license['order_url'] ) . '">#' . esc_html( $license['order_number'] ) . '</a></td>';
 			echo '<td data-title="Начало">' . esc_html( $license['starts_at'] ) . '</td>';
 			echo '<td data-title="Действует до">' . esc_html( $license['ends_at'] ) . '</td>';
 			echo '<td data-title="Статус">' . esc_html( $license['active'] ? 'Активна' : 'Истекла' ) . '</td></tr>';
